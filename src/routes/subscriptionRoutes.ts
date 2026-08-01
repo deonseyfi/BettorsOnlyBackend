@@ -21,8 +21,9 @@ async function findOrCreateStripeCustomer(userId: string, email: string): Promis
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
     res.json(await subscriptionDao.findBySubscriberId(req.user!.id));
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -89,8 +90,9 @@ router.post(
       });
 
       res.status(201).json({ subscriptionId: stripeSub.id, clientSecret: intent.client_secret });
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -112,8 +114,9 @@ router.delete(
       }
       await subscriptionDao.update(sub.id, { status: 'cancelled', cancelled_at: new Date() });
       res.json({ message: 'Subscription cancelled' });
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );

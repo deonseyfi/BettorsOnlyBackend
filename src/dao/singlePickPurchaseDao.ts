@@ -1,5 +1,4 @@
-import pool from '../db/pool';
-import { buildUpdateSet } from '../db/helpers';
+import { supabase, unwrap } from '../db/supabase';
 import { SinglePickPurchase, PaymentStatus } from '../types';
 
 export interface CreateSinglePickPurchaseData {
@@ -15,74 +14,80 @@ export interface UpdateSinglePickPurchaseData {
   status?: PaymentStatus;
 }
 
+const TABLE = 'single_pick_purchases';
+
 export const singlePickPurchaseDao = {
   async findById(id: string): Promise<SinglePickPurchase | null> {
-    const { rows } = await pool.query<SinglePickPurchase>(
-      'SELECT * FROM public.single_pick_purchases WHERE id = $1',
-      [id]
-    );
-    return rows[0] ?? null;
+    const data = unwrap(await supabase.from(TABLE).select('*').eq('id', id).maybeSingle());
+    return (data as SinglePickPurchase | null) ?? null;
   },
 
   async findByUserId(userId: string): Promise<SinglePickPurchase[]> {
-    const { rows } = await pool.query<SinglePickPurchase>(
-      'SELECT * FROM public.single_pick_purchases WHERE user_id = $1 ORDER BY purchased_at DESC',
-      [userId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('user_id', userId)
+        .order('purchased_at', { ascending: false })
     );
-    return rows;
+    return (data as SinglePickPurchase[] | null) ?? [];
   },
 
   async findByPickId(pickId: string): Promise<SinglePickPurchase[]> {
-    const { rows } = await pool.query<SinglePickPurchase>(
-      'SELECT * FROM public.single_pick_purchases WHERE pick_id = $1 ORDER BY purchased_at DESC',
-      [pickId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('pick_id', pickId)
+        .order('purchased_at', { ascending: false })
     );
-    return rows;
+    return (data as SinglePickPurchase[] | null) ?? [];
   },
 
   async findByStripePaymentIntentId(intentId: string): Promise<SinglePickPurchase | null> {
-    const { rows } = await pool.query<SinglePickPurchase>(
-      'SELECT * FROM public.single_pick_purchases WHERE stripe_payment_intent_id = $1',
-      [intentId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('stripe_payment_intent_id', intentId)
+        .maybeSingle()
     );
-    return rows[0] ?? null;
+    return (data as SinglePickPurchase | null) ?? null;
   },
 
   async hasPurchased(userId: string, pickId: string): Promise<boolean> {
-    const { rows } = await pool.query<{ exists: boolean }>(
-      `SELECT EXISTS(
-         SELECT 1 FROM public.single_pick_purchases
-         WHERE user_id = $1 AND pick_id = $2 AND status = 'succeeded'
-       ) AS exists`,
-      [userId, pickId]
-    );
-    return rows[0].exists;
+    // head + count is the supabase equivalent of SELECT EXISTS — no rows over the wire.
+    const { count, error } = await supabase
+      .from(TABLE)
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('pick_id', pickId)
+      .eq('status', 'succeeded');
+    if (error) throw new Error(error.message);
+    return (count ?? 0) > 0;
   },
 
   async create(data: CreateSinglePickPurchaseData): Promise<SinglePickPurchase> {
-    const { rows } = await pool.query<SinglePickPurchase>(
-      `INSERT INTO public.single_pick_purchases
-         (user_id, pick_id, amount_cents, stripe_payment_intent_id, status)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [
-        data.user_id,
-        data.pick_id,
-        data.amount_cents,
-        data.stripe_payment_intent_id ?? null,
-        data.status ?? 'pending',
-      ]
+    const row = unwrap(
+      await supabase
+        .from(TABLE)
+        .insert({
+          user_id: data.user_id,
+          pick_id: data.pick_id,
+          amount_cents: data.amount_cents,
+          stripe_payment_intent_id: data.stripe_payment_intent_id ?? null,
+          status: data.status ?? 'pending',
+        })
+        .select('*')
+        .single()
     );
-    return rows[0];
+    return row as SinglePickPurchase;
   },
 
   async update(id: string, data: UpdateSinglePickPurchaseData): Promise<SinglePickPurchase | null> {
-    const { setClauses, values, nextIndex } = buildUpdateSet(data);
-    if (!setClauses) return this.findById(id);
-    const { rows } = await pool.query<SinglePickPurchase>(
-      `UPDATE public.single_pick_purchases SET ${setClauses} WHERE id = $${nextIndex} RETURNING *`,
-      [...values, id]
+    const row = unwrap(
+      await supabase.from(TABLE).update(data).eq('id', id).select('*').maybeSingle()
     );
-    return rows[0] ?? null;
+    return (row as SinglePickPurchase | null) ?? null;
   },
 };

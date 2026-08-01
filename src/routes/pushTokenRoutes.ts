@@ -16,8 +16,9 @@ router.post(
     try {
       const { token, platform } = req.body as z.infer<typeof pushTokenBody>;
       res.status(201).json(await pushTokenDao.upsert(req.user!.id, token, platform));
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -36,8 +37,9 @@ router.delete('/:token', authenticate, async (req: Request, res: Response) => {
 
     await pushTokenDao.deleteByToken(tokenValue);
     res.status(204).send();
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 

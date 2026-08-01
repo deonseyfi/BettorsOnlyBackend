@@ -1,5 +1,4 @@
-import pool from '../db/pool';
-import { buildUpdateSet } from '../db/helpers';
+import { supabase, unwrap } from '../db/supabase';
 import { HistoricalLine, LineBetType, LineResult } from '../types';
 
 export interface CreateHistoricalLineData {
@@ -22,54 +21,60 @@ export interface UpdateHistoricalLineData {
   result?: LineResult | null;
 }
 
+const TABLE = 'historical_lines';
+
 export const historicalLineDao = {
   async findByGameId(gameId: string): Promise<HistoricalLine[]> {
-    const { rows } = await pool.query<HistoricalLine>(
-      'SELECT * FROM public.historical_lines WHERE game_id = $1 ORDER BY recorded_at DESC',
-      [gameId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('game_id', gameId)
+        .order('recorded_at', { ascending: false })
     );
-    return rows;
+    return (data as HistoricalLine[] | null) ?? [];
   },
 
   async findBySport(sport: string, limit = 100): Promise<HistoricalLine[]> {
-    const { rows } = await pool.query<HistoricalLine>(
-      'SELECT * FROM public.historical_lines WHERE sport = $1 ORDER BY recorded_at DESC LIMIT $2',
-      [sport, limit]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('sport', sport)
+        .order('recorded_at', { ascending: false })
+        .range(0, limit - 1)
     );
-    return rows;
+    return (data as HistoricalLine[] | null) ?? [];
   },
 
   async create(data: CreateHistoricalLineData): Promise<HistoricalLine> {
-    const { rows } = await pool.query<HistoricalLine>(
-      `INSERT INTO public.historical_lines
-         (game_id, sport, home_team, away_team, book, bet_type, line_value, juice,
-          final_score_home, final_score_away, result)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING *`,
-      [
-        data.game_id,
-        data.sport,
-        data.home_team,
-        data.away_team,
-        data.book,
-        data.bet_type,
-        data.line_value,
-        data.juice,
-        data.final_score_home ?? null,
-        data.final_score_away ?? null,
-        data.result ?? null,
-      ]
+    const row = unwrap(
+      await supabase
+        .from(TABLE)
+        .insert({
+          game_id: data.game_id,
+          sport: data.sport,
+          home_team: data.home_team,
+          away_team: data.away_team,
+          book: data.book,
+          bet_type: data.bet_type,
+          line_value: data.line_value,
+          juice: data.juice,
+          final_score_home: data.final_score_home ?? null,
+          final_score_away: data.final_score_away ?? null,
+          result: data.result ?? null,
+        })
+        .select('*')
+        .single()
     );
-    return rows[0];
+    return row as HistoricalLine;
   },
 
   async update(id: string, data: UpdateHistoricalLineData): Promise<HistoricalLine | null> {
-    const { setClauses, values, nextIndex } = buildUpdateSet(data);
-    if (!setClauses) return null;
-    const { rows } = await pool.query<HistoricalLine>(
-      `UPDATE public.historical_lines SET ${setClauses} WHERE id = $${nextIndex} RETURNING *`,
-      [...values, id]
+    if (Object.values(data).every(v => v === undefined)) return null;
+    const row = unwrap(
+      await supabase.from(TABLE).update(data).eq('id', id).select('*').maybeSingle()
     );
-    return rows[0] ?? null;
+    return (row as HistoricalLine | null) ?? null;
   },
 };

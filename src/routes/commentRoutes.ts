@@ -4,7 +4,6 @@ import { authenticate } from '../middleware/auth';
 import { validateBody, validateParams } from '../middleware/validate';
 import { idParam, postIdParam, createCommentBody } from '../validation';
 import { commentDao, postDao } from '../dao';
-import pool from '../db/pool';
 
 const router = Router();
 
@@ -15,8 +14,9 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       res.json(await commentDao.findByPostId(req.params.postId as string));
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -41,8 +41,9 @@ router.post(
           parent_comment_id,
         })
       );
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -54,17 +55,15 @@ router.delete(
   validateParams(idParam),
   async (req: Request, res: Response) => {
     try {
-      const { rows } = await pool.query(
-        'SELECT author_id FROM public.comments WHERE id = $1',
-        [req.params.id as string]
-      );
-      if (rows.length === 0)               { res.status(404).json({ error: 'Comment not found' }); return; }
-      if (rows[0].author_id !== req.user!.id) { res.status(403).json({ error: 'Forbidden' });         return; }
+      const authorId = await commentDao.findAuthorId(req.params.id as string);
+      if (authorId === null)               { res.status(404).json({ error: 'Comment not found' }); return; }
+      if (authorId !== req.user!.id)       { res.status(403).json({ error: 'Forbidden' });         return; }
 
       await commentDao.delete(req.params.id as string);
       res.status(204).send();
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );

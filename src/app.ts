@@ -24,13 +24,20 @@ const app = express();
 const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',').map(o => o.trim()).filter(Boolean);
 
+// Allow *.vercel.app previews by default — Vercel gives every push a unique
+// preview URL and the exact hostname is unknowable ahead of time. To lock this
+// down for production, add specific hostnames to ALLOWED_ORIGINS and unset
+// ALLOW_VERCEL_PREVIEWS.
+const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS !== 'false';
+
 app.use(helmet());
 app.use(cors({
-  // Mirrors ALLOWED_ORIGINS env var — only listed domains get CORS headers.
-  // In development every origin is allowed so local tooling works.
   origin: (origin, cb) => {
     if (process.env.NODE_ENV !== 'production' || !origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
+    if (allowVercelPreviews && /^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin)) {
+      return cb(null, true);
+    }
     cb(new Error(`CORS: origin ${origin} not allowed`));
   },
   credentials: true,

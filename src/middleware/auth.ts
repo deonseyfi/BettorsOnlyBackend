@@ -22,7 +22,11 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  req.user = { id: user.id, email: user.email ?? undefined };
+  req.user = {
+    id: user.id,
+    email: user.email ?? undefined,
+    user_metadata: user.user_metadata ?? {},
+  };
 
   // Apply per-user rate limit now that req.user is populated.
   // userLimiter calls next() on its own when the limit is not exceeded.

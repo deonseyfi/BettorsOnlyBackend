@@ -15,8 +15,9 @@ router.get('/', validateQuery(postQueryFilters), async (req: Request, res: Respo
   try {
     const { sport, author_id, limit, offset } = req.query as unknown as z.infer<typeof postQueryFilters>;
     res.json(await postDao.findPublic({ sport, author_id, limit, offset }));
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -43,8 +44,9 @@ router.get('/:id', validateParams(idParam), async (req: Request, res: Response) 
     }
 
     res.json(post);
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -57,8 +59,9 @@ router.post(
     try {
       const body = req.body as z.infer<typeof createPostBody>;
       res.status(201).json(await postDao.create({ author_id: req.user!.id, ...body }));
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -75,8 +78,9 @@ router.patch(
       if (!post)                          { res.status(404).json({ error: 'Post not found' }); return; }
       if (post.author_id !== req.user!.id) { res.status(403).json({ error: 'Forbidden' });     return; }
       res.json(await postDao.update(post.id, req.body as z.infer<typeof updatePostBody>));
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -93,8 +97,9 @@ router.delete(
       if (post.author_id !== req.user!.id) { res.status(403).json({ error: 'Forbidden' });     return; }
       await postDao.delete(post.id);
       res.status(204).send();
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -110,8 +115,9 @@ router.post(
       if (!post) { res.status(404).json({ error: 'Post not found' }); return; }
       await postDao.incrementUpvotes(post.id);
       res.json({ message: 'Upvoted' });
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );

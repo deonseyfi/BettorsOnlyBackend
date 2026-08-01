@@ -1,5 +1,4 @@
-import pool from '../db/pool';
-import { buildUpdateSet } from '../db/helpers';
+import { supabase, unwrap } from '../db/supabase';
 import { BetPick, BetType, PickResult } from '../types';
 
 export interface CreatePickData {
@@ -36,104 +35,78 @@ export interface PickFilters {
   offset?: number;
 }
 
+const TABLE = 'picks';
+
 export const pickDao = {
   async findById(id: string): Promise<BetPick | null> {
-    const { rows } = await pool.query<BetPick>(
-      'SELECT * FROM public.picks WHERE id = $1',
-      [id]
-    );
-    return rows[0] ?? null;
+    const data = unwrap(await supabase.from(TABLE).select('*').eq('id', id).maybeSingle());
+    return (data as BetPick | null) ?? null;
   },
 
   async findByCapperId(capperId: string, filters: PickFilters = {}): Promise<BetPick[]> {
-    const conditions = ['capper_id = $1'];
-    const values: unknown[] = [capperId];
-    let i = 2;
-
-    if (filters.sport !== undefined) {
-      conditions.push(`sport = $${i++}`);
-      values.push(filters.sport);
-    }
-    if (filters.result !== undefined) {
-      conditions.push(`result = $${i++}`);
-      values.push(filters.result);
-    }
-    if (filters.is_vip_only !== undefined) {
-      conditions.push(`is_vip_only = $${i++}`);
-      values.push(filters.is_vip_only);
-    }
-
-    values.push(filters.limit ?? 50, filters.offset ?? 0);
-    const { rows } = await pool.query<BetPick>(
-      `SELECT * FROM public.picks WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
-      values
+    const limit = filters.limit ?? 50;
+    const offset = filters.offset ?? 0;
+    let q = supabase.from(TABLE).select('*').eq('capper_id', capperId);
+    if (filters.sport !== undefined) q = q.eq('sport', filters.sport);
+    if (filters.result !== undefined) q = q.eq('result', filters.result);
+    if (filters.is_vip_only !== undefined) q = q.eq('is_vip_only', filters.is_vip_only);
+    const data = unwrap(
+      await q.order('created_at', { ascending: false }).range(offset, offset + limit - 1)
     );
-    return rows;
+    return (data as BetPick[] | null) ?? [];
   },
 
   async findPublic(filters: PickFilters = {}): Promise<BetPick[]> {
-    const conditions = ['is_vip_only = false'];
-    const values: unknown[] = [];
-    let i = 1;
-
-    if (filters.sport !== undefined) {
-      conditions.push(`sport = $${i++}`);
-      values.push(filters.sport);
-    }
-    if (filters.result !== undefined) {
-      conditions.push(`result = $${i++}`);
-      values.push(filters.result);
-    }
-
-    values.push(filters.limit ?? 50, filters.offset ?? 0);
-    const { rows } = await pool.query<BetPick>(
-      `SELECT * FROM public.picks WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
-      values
+    const limit = filters.limit ?? 50;
+    const offset = filters.offset ?? 0;
+    let q = supabase.from(TABLE).select('*').eq('is_vip_only', false);
+    if (filters.sport !== undefined) q = q.eq('sport', filters.sport);
+    if (filters.result !== undefined) q = q.eq('result', filters.result);
+    const data = unwrap(
+      await q.order('created_at', { ascending: false }).range(offset, offset + limit - 1)
     );
-    return rows;
+    return (data as BetPick[] | null) ?? [];
   },
 
   async findByGameId(gameId: string): Promise<BetPick[]> {
-    const { rows } = await pool.query<BetPick>(
-      'SELECT * FROM public.picks WHERE game_id = $1 ORDER BY created_at DESC',
-      [gameId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('game_id', gameId)
+        .order('created_at', { ascending: false })
     );
-    return rows;
+    return (data as BetPick[] | null) ?? [];
   },
 
   async create(data: CreatePickData): Promise<BetPick> {
-    const { rows } = await pool.query<BetPick>(
-      `INSERT INTO public.picks
-         (capper_id, sport, league, game_id, bet_type, pick_details, odds, units, is_vip_only, game_start_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
-      [
-        data.capper_id,
-        data.sport,
-        data.league ?? null,
-        data.game_id,
-        data.bet_type,
-        JSON.stringify(data.pick_details ?? {}),
-        data.odds,
-        data.units ?? 1.0,
-        data.is_vip_only ?? false,
-        data.game_start_at,
-      ]
+    const row = unwrap(
+      await supabase
+        .from(TABLE)
+        .insert({
+          capper_id: data.capper_id,
+          sport: data.sport,
+          league: data.league ?? null,
+          game_id: data.game_id,
+          bet_type: data.bet_type,
+          pick_details: data.pick_details ?? {},
+          odds: data.odds,
+          units: data.units ?? 1.0,
+          is_vip_only: data.is_vip_only ?? false,
+          game_start_at: data.game_start_at.toISOString(),
+        })
+        .select('*')
+        .single()
     );
-    return rows[0];
+    return row as BetPick;
   },
 
   async update(id: string, data: UpdatePickData): Promise<BetPick | null> {
-    const updateData: Record<string, unknown> = { ...data };
-    if (data.pick_details !== undefined) {
-      updateData.pick_details = JSON.stringify(data.pick_details);
-    }
-    const { setClauses, values, nextIndex } = buildUpdateSet(updateData);
-    if (!setClauses) return this.findById(id);
-    const { rows } = await pool.query<BetPick>(
-      `UPDATE public.picks SET ${setClauses} WHERE id = $${nextIndex} RETURNING *`,
-      [...values, id]
+    const patch: Record<string, unknown> = { ...data };
+    if (data.graded_at instanceof Date) patch.graded_at = data.graded_at.toISOString();
+    const row = unwrap(
+      await supabase.from(TABLE).update(patch).eq('id', id).select('*').maybeSingle()
     );
-    return rows[0] ?? null;
+    return (row as BetPick | null) ?? null;
   },
 };

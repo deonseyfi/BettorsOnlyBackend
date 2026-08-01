@@ -1,4 +1,4 @@
-import pool from '../db/pool';
+import { supabase, unwrap } from '../db/supabase';
 import { capperProfileDao, capperTierHistoryDao, notificationDao } from '../dao';
 import { CapperProfile, CapperTier } from '../types';
 
@@ -33,10 +33,14 @@ async function notifyActiveSubscribers(
   title: string,
   body: string
 ): Promise<void> {
-  const { rows } = await pool.query<{ subscriber_id: string }>(
-    `SELECT subscriber_id FROM public.subscriptions WHERE capper_id = $1 AND status = 'active'`,
-    [capperId]
-  );
+  const rows = unwrap(
+    await supabase
+      .from('subscriptions')
+      .select('subscriber_id')
+      .eq('capper_id', capperId)
+      .eq('status', 'active')
+  ) as Array<{ subscriber_id: string }> | null ?? [];
+
   await Promise.all(
     rows.map(r =>
       notificationDao.create({

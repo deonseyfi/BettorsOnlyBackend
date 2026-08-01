@@ -1,4 +1,4 @@
-import pool from '../db/pool';
+import { supabase, unwrap } from '../db/supabase';
 import { AppNotification, NotificationType } from '../types';
 
 export interface CreateNotificationData {
@@ -9,39 +9,51 @@ export interface CreateNotificationData {
   related_id?: string | null;
 }
 
+const TABLE = 'notifications';
+
 export const notificationDao = {
   async findByUserId(userId: string, unreadOnly = false): Promise<AppNotification[]> {
-    const unreadClause = unreadOnly ? 'AND is_read = false' : '';
-    const { rows } = await pool.query<AppNotification>(
-      `SELECT * FROM public.notifications
-       WHERE user_id = $1 ${unreadClause}
-       ORDER BY created_at DESC`,
-      [userId]
-    );
-    return rows;
+    let q = supabase.from(TABLE).select('*').eq('user_id', userId);
+    if (unreadOnly) q = q.eq('is_read', false);
+    const data = unwrap(await q.order('created_at', { ascending: false }));
+    return (data as AppNotification[] | null) ?? [];
+  },
+
+  async findUserId(id: string): Promise<string | null> {
+    const data = unwrap(
+      await supabase.from(TABLE).select('user_id').eq('id', id).maybeSingle()
+    ) as { user_id: string } | null;
+    return data?.user_id ?? null;
   },
 
   async create(data: CreateNotificationData): Promise<AppNotification> {
-    const { rows } = await pool.query<AppNotification>(
-      `INSERT INTO public.notifications (user_id, type, title, body, related_id)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [data.user_id, data.type, data.title, data.body, data.related_id ?? null]
+    const row = unwrap(
+      await supabase
+        .from(TABLE)
+        .insert({
+          user_id: data.user_id,
+          type: data.type,
+          title: data.title,
+          body: data.body,
+          related_id: data.related_id ?? null,
+        })
+        .select('*')
+        .single()
     );
-    return rows[0];
+    return row as AppNotification;
   },
 
   async markRead(id: string): Promise<void> {
-    await pool.query(
-      'UPDATE public.notifications SET is_read = true WHERE id = $1',
-      [id]
-    );
+    unwrap(await supabase.from(TABLE).update({ is_read: true }).eq('id', id));
   },
 
   async markAllRead(userId: string): Promise<void> {
-    await pool.query(
-      'UPDATE public.notifications SET is_read = true WHERE user_id = $1 AND is_read = false',
-      [userId]
+    unwrap(
+      await supabase
+        .from(TABLE)
+        .update({ is_read: true })
+        .eq('user_id', userId)
+        .eq('is_read', false)
     );
   },
 };
