@@ -1,4 +1,4 @@
-import pool from '../db/pool';
+import { supabase, unwrap } from '../db/supabase';
 import { PickAccessLog, AccessType } from '../types';
 
 export interface CreatePickAccessLogData {
@@ -7,30 +7,35 @@ export interface CreatePickAccessLogData {
   access_type: AccessType;
 }
 
+const TABLE = 'pick_access_log';
+
 export const pickAccessLogDao = {
   async create(data: CreatePickAccessLogData): Promise<PickAccessLog> {
-    const { rows } = await pool.query<PickAccessLog>(
-      `INSERT INTO public.pick_access_log (pick_id, user_id, access_type)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
-      [data.pick_id, data.user_id, data.access_type]
+    const row = unwrap(
+      await supabase.from(TABLE).insert(data).select('*').single()
     );
-    return rows[0];
+    return row as PickAccessLog;
   },
 
   async findByPickId(pickId: string): Promise<PickAccessLog[]> {
-    const { rows } = await pool.query<PickAccessLog>(
-      'SELECT * FROM public.pick_access_log WHERE pick_id = $1 ORDER BY accessed_at DESC',
-      [pickId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('pick_id', pickId)
+        .order('accessed_at', { ascending: false })
     );
-    return rows;
+    return (data as PickAccessLog[] | null) ?? [];
   },
 
   async findByUserId(userId: string): Promise<PickAccessLog[]> {
-    const { rows } = await pool.query<PickAccessLog>(
-      'SELECT * FROM public.pick_access_log WHERE user_id = $1 ORDER BY accessed_at DESC',
-      [userId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('user_id', userId)
+        .order('accessed_at', { ascending: false })
     );
-    return rows;
+    return (data as PickAccessLog[] | null) ?? [];
   },
 };

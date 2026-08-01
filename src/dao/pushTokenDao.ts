@@ -1,31 +1,37 @@
-import pool from '../db/pool';
+import { supabase, unwrap } from '../db/supabase';
 import { PushToken, PushPlatform } from '../types';
+
+const TABLE = 'push_tokens';
 
 export const pushTokenDao = {
   async findByUserId(userId: string): Promise<PushToken[]> {
-    const { rows } = await pool.query<PushToken>(
-      'SELECT * FROM public.push_tokens WHERE user_id = $1 ORDER BY created_at DESC',
-      [userId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
     );
-    return rows;
+    return (data as PushToken[] | null) ?? [];
   },
 
   async upsert(userId: string, token: string, platform: PushPlatform): Promise<PushToken> {
-    const { rows } = await pool.query<PushToken>(
-      `INSERT INTO public.push_tokens (user_id, token, platform)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (token) DO UPDATE SET user_id = $1, platform = $3
-       RETURNING *`,
-      [userId, token, platform]
+    // `token` has a unique constraint; supabase upsert with onConflict mirrors `ON CONFLICT (token) DO UPDATE`.
+    const row = unwrap(
+      await supabase
+        .from(TABLE)
+        .upsert({ user_id: userId, token, platform }, { onConflict: 'token' })
+        .select('*')
+        .single()
     );
-    return rows[0];
+    return row as PushToken;
   },
 
   async deleteByToken(token: string): Promise<void> {
-    await pool.query('DELETE FROM public.push_tokens WHERE token = $1', [token]);
+    unwrap(await supabase.from(TABLE).delete().eq('token', token));
   },
 
   async deleteByUserId(userId: string): Promise<void> {
-    await pool.query('DELETE FROM public.push_tokens WHERE user_id = $1', [userId]);
+    unwrap(await supabase.from(TABLE).delete().eq('user_id', userId));
   },
 };

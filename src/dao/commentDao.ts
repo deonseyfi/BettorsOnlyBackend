@@ -1,4 +1,4 @@
-import pool from '../db/pool';
+import { supabase, unwrap } from '../db/supabase';
 import { BetComment } from '../types';
 
 export interface CreateCommentData {
@@ -8,26 +8,44 @@ export interface CreateCommentData {
   body: string;
 }
 
+const TABLE = 'comments';
+
 export const commentDao = {
   async findByPostId(postId: string): Promise<BetComment[]> {
-    const { rows } = await pool.query<BetComment>(
-      'SELECT * FROM public.comments WHERE post_id = $1 ORDER BY created_at ASC',
-      [postId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true })
     );
-    return rows;
+    return (data as BetComment[] | null) ?? [];
+  },
+
+  async findAuthorId(id: string): Promise<string | null> {
+    const data = unwrap(
+      await supabase.from(TABLE).select('author_id').eq('id', id).maybeSingle()
+    ) as { author_id: string } | null;
+    return data?.author_id ?? null;
   },
 
   async create(data: CreateCommentData): Promise<BetComment> {
-    const { rows } = await pool.query<BetComment>(
-      `INSERT INTO public.comments (post_id, author_id, parent_comment_id, body)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [data.post_id, data.author_id, data.parent_comment_id ?? null, data.body]
+    const row = unwrap(
+      await supabase
+        .from(TABLE)
+        .insert({
+          post_id: data.post_id,
+          author_id: data.author_id,
+          parent_comment_id: data.parent_comment_id ?? null,
+          body: data.body,
+        })
+        .select('*')
+        .single()
     );
-    return rows[0];
+    return row as BetComment;
   },
 
   async delete(id: string): Promise<void> {
-    await pool.query('DELETE FROM public.comments WHERE id = $1', [id]);
+    unwrap(await supabase.from(TABLE).delete().eq('id', id));
   },
 };

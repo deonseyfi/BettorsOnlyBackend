@@ -31,8 +31,9 @@ router.get('/', validateQuery(pickQueryFilters), async (req: Request, res: Respo
   try {
     const { sport, result, limit, offset } = req.query as unknown as z.infer<typeof pickQueryFilters>;
     res.json(await pickDao.findPublic({ sport, result, limit, offset }));
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -60,8 +61,9 @@ router.get('/:id', validateParams(idParam), async (req: Request, res: Response) 
     }
 
     res.json(pick);
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -77,8 +79,9 @@ router.post(
       const body   = req.body as z.infer<typeof createPickBody>;
       const pick   = await pickDao.create({ capper_id: capper!.id, ...body });
       res.status(201).json(pick);
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -99,8 +102,9 @@ router.patch(
       if (pick.result    !== 'pending') { res.status(400).json({ error: 'Cannot edit a graded pick' }); return; }
 
       res.json(await pickDao.update(pick.id, req.body as z.infer<typeof updatePickBody>));
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -130,8 +134,9 @@ router.post(
         .catch(() => { /* non-critical */ });
 
       res.json(updated);
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );

@@ -6,6 +6,7 @@ import { validateBody, validateParams } from '../middleware/validate';
 import { idParam, capperIdParam, suspendCapperBody } from '../validation';
 import { capperProfileDao } from '../dao';
 import { evaluateAllCappers, evaluateCapper } from '../services/tierService';
+import { runAutoGrader } from '../services/autoGrader';
 
 const router = Router();
 
@@ -13,8 +14,20 @@ const router = Router();
 router.post('/tiers/evaluate', authenticate, requireAdmin, async (_req: Request, res: Response) => {
   try {
     res.json(await evaluateAllCappers());
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/v1/admin/picks/auto-grade  — run the auto-grader once, on demand.
+// The scheduler runs hourly on its own; this is for manual triggers.
+router.post('/picks/auto-grade', authenticate, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    res.json(await runAutoGrader());
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -30,8 +43,9 @@ router.post(
       if (!capper) { res.status(404).json({ error: 'Capper not found' }); return; }
       await evaluateCapper(capper);
       res.json({ message: 'Tier evaluation complete', capperId: capper.id });
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -49,8 +63,9 @@ router.patch(
       const updated = await capperProfileDao.update(req.params.id as string, { is_suspended: suspended });
       if (!updated) { res.status(404).json({ error: 'Capper not found' }); return; }
       res.json(updated);
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );

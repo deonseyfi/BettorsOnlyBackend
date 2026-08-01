@@ -8,9 +8,8 @@ import {
   idParam, listCappersQuery, becomeCapperBody,
   updateCapperBody, pickQueryFilters,
 } from '../validation';
-import { capperProfileDao, capperTierHistoryDao, pickDao } from '../dao';
+import { capperProfileDao, capperTierHistoryDao, pickDao, profileDao } from '../dao';
 import { PickResult } from '../types';
-import pool from '../db/pool';
 
 const router = Router();
 
@@ -18,8 +17,9 @@ const router = Router();
 router.get('/leaderboard', async (_req: Request, res: Response) => {
   try {
     res.json(await capperProfileDao.getLeaderboard());
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -28,8 +28,9 @@ router.get('/', validateQuery(listCappersQuery), async (req: Request, res: Respo
   try {
     const { tier, limit, offset } = req.query as unknown as z.infer<typeof listCappersQuery>;
     res.json(await capperProfileDao.list({ tier, is_suspended: false, limit, offset }));
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -37,10 +38,37 @@ router.get('/', validateQuery(listCappersQuery), async (req: Request, res: Respo
 router.get('/me', authenticate, requireCapper, async (req: Request, res: Response) => {
   try {
     res.json(await capperProfileDao.findByUserId(req.user!.id));
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// GET /api/v1/cappers/me/picks — all of the current capper's picks, including VIP-only.
+// Distinct from the public `/cappers/:id/picks` which hardcodes is_vip_only=false.
+router.get(
+  '/me/picks',
+  authenticate,
+  requireCapper,
+  validateQuery(pickQueryFilters),
+  async (req: Request, res: Response) => {
+    try {
+      const capper = await capperProfileDao.findByUserId(req.user!.id);
+      if (!capper) { res.status(404).json({ error: 'Capper profile not found' }); return; }
+
+      const { sport, result, limit, offset } = req.query as unknown as z.infer<typeof pickQueryFilters>;
+      // is_vip_only omitted → DAO returns both VIP and public picks for this capper.
+      res.json(
+        await pickDao.findByCapperId(capper.id, {
+          sport, result: result as PickResult | undefined, limit, offset,
+        })
+      );
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
 
 // POST /api/v1/cappers/become
 router.post(
@@ -55,25 +83,31 @@ router.post(
     const { bio, monthly_price_cents, single_pick_price_cents } =
       req.body as z.infer<typeof becomeCapperBody>;
 
-    const client = await pool.connect();
+    // No native transactions over PostgREST — do the insert first (the failure-prone op),
+    // then promote the profile. If the profile update fails, delete the capper row to
+    // restore consistency. If the cleanup itself fails the user lands in an odd state
+    // where they have a capper_profile but role='user'; admin can reconcile manually.
+    let capper;
     try {
-      await client.query('BEGIN');
-      await client.query(
-        `UPDATE public.profiles SET role = 'capper', is_capper = true, updated_at = now() WHERE id = $1`,
-        [req.user!.id]
-      );
-      const { rows } = await client.query(
-        `INSERT INTO public.capper_profiles (user_id, bio, monthly_price_cents, single_pick_price_cents)
-         VALUES ($1, $2, $3, $4) RETURNING *`,
-        [req.user!.id, bio ?? null, monthly_price_cents ?? 0, single_pick_price_cents ?? 0]
-      );
-      await client.query('COMMIT');
-      res.status(201).json(rows[0]);
+      capper = await capperProfileDao.create({
+        user_id: req.user!.id,
+        bio: bio ?? null,
+        monthly_price_cents: monthly_price_cents ?? 0,
+        single_pick_price_cents: single_pick_price_cents ?? 0,
+      });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
+      return;
+    }
+
+    try {
+      await profileDao.update(req.user!.id, { role: 'capper', is_capper: true });
+      res.status(201).json(capper);
     } catch {
-      await client.query('ROLLBACK');
+      // Best-effort rollback of the just-inserted capper row.
+      try { await capperProfileDao.delete(capper.id); } catch { /* ignore */ }
       res.status(500).json({ error: 'Internal server error' });
-    } finally {
-      client.release();
     }
   }
 );
@@ -89,8 +123,9 @@ router.patch(
       const capper = await capperProfileDao.findByUserId(req.user!.id);
       const body   = req.body as z.infer<typeof updateCapperBody>;
       res.json(await capperProfileDao.update(capper!.id, body));
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -101,8 +136,9 @@ router.get('/:id', validateParams(idParam), async (req: Request, res: Response) 
     const capper = await capperProfileDao.findById(req.params.id as string);
     if (!capper) { res.status(404).json({ error: 'Capper not found' }); return; }
     res.json(capper);
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -113,8 +149,9 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       res.json(await capperTierHistoryDao.findByCapperId(req.params.id as string));
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -133,8 +170,9 @@ router.get(
           is_vip_only: false, limit, offset,
         })
       );
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );

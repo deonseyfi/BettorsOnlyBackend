@@ -11,18 +11,20 @@ router.get('/sports', async (_req: Request, res: Response) => {
   try {
     const sports = await oddsService.getSports();
     res.json(sports.filter(s => s.active));
-  } catch {
-    res.status(502).json({ error: 'Unable to fetch sports from odds provider' });
+  } catch (e) {
+    console.error('[odds/sports]', e);
+    res.status(502).json({ error: `Unable to fetch sports from odds provider: ${(e as Error).message}` });
   }
 });
 
-// GET /api/v1/odds?sport=americanfootball_nfl&regions=us&markets=spreads,moneyline,totals
+// GET /api/v1/odds?sport=americanfootball_nfl&regions=us&markets=spreads,h2h,totals
 router.get('/', validateQuery(oddsQuery), async (req: Request, res: Response) => {
   try {
     const { sport, regions, markets } = req.query as z.infer<typeof oddsQuery>;
     res.json(await oddsService.getOdds(sport, regions, markets));
-  } catch {
-    res.status(502).json({ error: 'Unable to fetch odds from odds provider' });
+  } catch (e) {
+    console.error('[odds]', e);
+    res.status(502).json({ error: `Unable to fetch odds from odds provider: ${(e as Error).message}` });
   }
 });
 

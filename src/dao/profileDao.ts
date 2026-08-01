@@ -1,5 +1,4 @@
-import pool from '../db/pool';
-import { buildUpdateSet } from '../db/helpers';
+import { supabase, unwrap } from '../db/supabase';
 import { Profile, UserRole } from '../types';
 
 export interface UpdateProfileData {
@@ -11,41 +10,48 @@ export interface UpdateProfileData {
   is_capper?: boolean;
 }
 
+const TABLE = 'profiles';
+
 export const profileDao = {
   async findById(id: string): Promise<Profile | null> {
-    const { rows } = await pool.query<Profile>(
-      'SELECT * FROM public.profiles WHERE id = $1',
-      [id]
-    );
-    return rows[0] ?? null;
+    const data = unwrap(await supabase.from(TABLE).select('*').eq('id', id).maybeSingle());
+    return (data as Profile | null) ?? null;
   },
 
   async findByUsername(username: string): Promise<Profile | null> {
-    const { rows } = await pool.query<Profile>(
-      'SELECT * FROM public.profiles WHERE username = $1',
-      [username]
-    );
-    return rows[0] ?? null;
+    const data = unwrap(await supabase.from(TABLE).select('*').eq('username', username).maybeSingle());
+    return (data as Profile | null) ?? null;
   },
 
   async update(id: string, data: UpdateProfileData): Promise<Profile | null> {
-    const { setClauses, values, nextIndex } = buildUpdateSet({
-      ...data,
-      updated_at: new Date(),
-    });
-    if (!setClauses) return this.findById(id);
-    const { rows } = await pool.query<Profile>(
-      `UPDATE public.profiles SET ${setClauses} WHERE id = $${nextIndex} RETURNING *`,
-      [...values, id]
+    const patch = { ...data, updated_at: new Date().toISOString() };
+    const result = unwrap(
+      await supabase.from(TABLE).update(patch).eq('id', id).select('*').maybeSingle()
     );
-    return rows[0] ?? null;
+    return (result as Profile | null) ?? null;
   },
 
   async list(limit = 50, offset = 0): Promise<Profile[]> {
-    const { rows } = await pool.query<Profile>(
-      'SELECT * FROM public.profiles ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-      [limit, offset]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1)
     );
-    return rows;
+    return (data as Profile[] | null) ?? [];
+  },
+
+  // Idempotent: inserts the profile row if missing, otherwise leaves the existing row alone.
+  // Used as a back-fill when the `on_auth_user_created` trigger wasn't installed
+  // before the user signed up.
+  async ensure(id: string, username: string, displayName?: string | null): Promise<void> {
+    const { error } = await supabase
+      .from(TABLE)
+      .upsert(
+        { id, username, display_name: displayName ?? username },
+        { onConflict: 'id', ignoreDuplicates: true }
+      );
+    if (error) throw new Error(error.message);
   },
 };

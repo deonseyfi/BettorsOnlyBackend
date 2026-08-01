@@ -24,8 +24,9 @@ router.get('/', async (req: Request, res: Response) => {
     } else {
       res.status(400).json({ error: 'Provide game_id or sport query param' });
     }
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -39,8 +40,9 @@ router.post(
     try {
       const body = req.body as z.infer<typeof createLineBody>;
       res.status(201).json(await historicalLineDao.create(body));
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );
@@ -58,8 +60,9 @@ router.patch(
       const updated = await historicalLineDao.update(req.params.id as string, body);
       if (!updated) { res.status(404).json({ error: 'Line not found' }); return; }
       res.json(updated);
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );

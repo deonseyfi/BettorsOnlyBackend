@@ -14,8 +14,9 @@ const router  = Router();
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
     res.json(await singlePickPurchaseDao.findByUserId(req.user!.id));
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -56,8 +57,9 @@ router.post(
       });
 
       res.status(201).json({ purchaseId: purchase.id, clientSecret: intent.client_secret });
-    } catch {
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Internal server error" });
     }
   }
 );

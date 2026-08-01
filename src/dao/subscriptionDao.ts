@@ -1,5 +1,4 @@
-import pool from '../db/pool';
-import { buildUpdateSet } from '../db/helpers';
+import { supabase, unwrap } from '../db/supabase';
 import { Subscription, SubscriptionStatus, CapperTier } from '../types';
 
 export interface CreateSubscriptionData {
@@ -21,76 +20,87 @@ export interface UpdateSubscriptionData {
   cancelled_at?: Date | null;
 }
 
+const TABLE = 'subscriptions';
+
+const toIso = (d: Date | null | undefined) => (d instanceof Date ? d.toISOString() : d);
+
 export const subscriptionDao = {
   async findById(id: string): Promise<Subscription | null> {
-    const { rows } = await pool.query<Subscription>(
-      'SELECT * FROM public.subscriptions WHERE id = $1',
-      [id]
-    );
-    return rows[0] ?? null;
+    const data = unwrap(await supabase.from(TABLE).select('*').eq('id', id).maybeSingle());
+    return (data as Subscription | null) ?? null;
   },
 
   async findBySubscriberId(subscriberId: string): Promise<Subscription[]> {
-    const { rows } = await pool.query<Subscription>(
-      'SELECT * FROM public.subscriptions WHERE subscriber_id = $1 ORDER BY created_at DESC',
-      [subscriberId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('subscriber_id', subscriberId)
+        .order('created_at', { ascending: false })
     );
-    return rows;
+    return (data as Subscription[] | null) ?? [];
   },
 
   async findByCapperId(capperId: string): Promise<Subscription[]> {
-    const { rows } = await pool.query<Subscription>(
-      'SELECT * FROM public.subscriptions WHERE capper_id = $1 ORDER BY created_at DESC',
-      [capperId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('capper_id', capperId)
+        .order('created_at', { ascending: false })
     );
-    return rows;
+    return (data as Subscription[] | null) ?? [];
   },
 
   async findActive(subscriberId: string, capperId: string): Promise<Subscription | null> {
-    const { rows } = await pool.query<Subscription>(
-      `SELECT * FROM public.subscriptions
-       WHERE subscriber_id = $1 AND capper_id = $2 AND status = 'active'`,
-      [subscriberId, capperId]
+    const data = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('subscriber_id', subscriberId)
+        .eq('capper_id', capperId)
+        .eq('status', 'active')
+        .maybeSingle()
     );
-    return rows[0] ?? null;
+    return (data as Subscription | null) ?? null;
   },
 
   async findByStripeSubscriptionId(stripeId: string): Promise<Subscription | null> {
-    const { rows } = await pool.query<Subscription>(
-      'SELECT * FROM public.subscriptions WHERE stripe_subscription_id = $1',
-      [stripeId]
+    const data = unwrap(
+      await supabase.from(TABLE).select('*').eq('stripe_subscription_id', stripeId).maybeSingle()
     );
-    return rows[0] ?? null;
+    return (data as Subscription | null) ?? null;
   },
 
   async create(data: CreateSubscriptionData): Promise<Subscription> {
-    const { rows } = await pool.query<Subscription>(
-      `INSERT INTO public.subscriptions
-         (subscriber_id, capper_id, status, tier_at_subscribe, price_cents,
-          stripe_subscription_id, current_period_start, current_period_end)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [
-        data.subscriber_id,
-        data.capper_id,
-        data.status ?? 'active',
-        data.tier_at_subscribe,
-        data.price_cents,
-        data.stripe_subscription_id ?? null,
-        data.current_period_start,
-        data.current_period_end,
-      ]
+    const row = unwrap(
+      await supabase
+        .from(TABLE)
+        .insert({
+          subscriber_id: data.subscriber_id,
+          capper_id: data.capper_id,
+          status: data.status ?? 'active',
+          tier_at_subscribe: data.tier_at_subscribe,
+          price_cents: data.price_cents,
+          stripe_subscription_id: data.stripe_subscription_id ?? null,
+          current_period_start: data.current_period_start.toISOString(),
+          current_period_end: data.current_period_end.toISOString(),
+        })
+        .select('*')
+        .single()
     );
-    return rows[0];
+    return row as Subscription;
   },
 
   async update(id: string, data: UpdateSubscriptionData): Promise<Subscription | null> {
-    const { setClauses, values, nextIndex } = buildUpdateSet(data);
-    if (!setClauses) return this.findById(id);
-    const { rows } = await pool.query<Subscription>(
-      `UPDATE public.subscriptions SET ${setClauses} WHERE id = $${nextIndex} RETURNING *`,
-      [...values, id]
+    const patch: Record<string, unknown> = { ...data };
+    if (data.current_period_start) patch.current_period_start = toIso(data.current_period_start);
+    if (data.current_period_end) patch.current_period_end = toIso(data.current_period_end);
+    if (data.cancelled_at instanceof Date) patch.cancelled_at = toIso(data.cancelled_at);
+
+    const row = unwrap(
+      await supabase.from(TABLE).update(patch).eq('id', id).select('*').maybeSingle()
     );
-    return rows[0] ?? null;
+    return (row as Subscription | null) ?? null;
   },
 };

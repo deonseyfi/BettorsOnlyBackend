@@ -13,8 +13,9 @@ router.get('/me', authenticate, async (req: Request, res: Response) => {
     const profile = await profileDao.findById(req.user!.id);
     if (!profile) { res.status(404).json({ error: 'Profile not found' }); return; }
     res.json(profile);
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -24,8 +25,9 @@ router.get('/:id', validateParams(idParam), async (req: Request, res: Response) 
     const profile = await profileDao.findById(req.params.id as string);
     if (!profile) { res.status(404).json({ error: 'Profile not found' }); return; }
     res.json(profile);
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -36,8 +38,9 @@ router.patch('/me', authenticate, validateBody(updateProfileBody), async (req: R
     const updated = await profileDao.update(req.user!.id, body);
     if (!updated) { res.status(404).json({ error: 'Profile not found' }); return; }
     res.json(updated);
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
