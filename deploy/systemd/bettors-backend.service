@@ -1,0 +1,29 @@
+[Unit]
+Description=BettorsOnly API
+Documentation=https://github.com/deonseyfi/BettorsOnlyBackend
+After=network.target
+
+[Service]
+Type=simple
+User=bettors
+Group=bettors
+WorkingDirectory=/home/bettors/backend
+# Compiled JS from `npm run build`. Runs under Node's built-in resolver, no ts-node.
+ExecStart=/usr/bin/node dist/index.js
+# Env comes from a file owned by root, mode 640 — the bettors group can read it.
+EnvironmentFile=/etc/bettors/backend.env
+Restart=on-failure
+RestartSec=5
+# stdout/stderr → journalctl -u bettors-backend
+StandardOutput=journal
+StandardError=journal
+# Hardening — deny things the backend has no business doing.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/bettors/backend
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
