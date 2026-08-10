@@ -87,9 +87,36 @@ export const capperProfileDao = {
   },
 
   async getLeaderboard(): Promise<LeaderboardEntry[]> {
-    // public.leaderboard is a view in the database. Reading via PostgREST works the same as a table.
-    const data = unwrap(await supabase.from('leaderboard').select('*'));
-    return (data as LeaderboardEntry[] | null) ?? [];
+    // The `public.leaderboard` view filters to `tier != 'none' AND total_picks >= 20`,
+    // which hides every capper until they qualify. During ramp-up we want to show
+    // anyone who's submitted at least one pick, sorted by units won. Direct join
+    // via PostgREST — the FK `capper_profiles.user_id → profiles.id` powers the
+    // embedded select.
+    type Row = CapperProfile & {
+      profiles: { username: string; display_name: string | null; avatar_url: string | null } | null;
+    };
+    const rows = unwrap(
+      await supabase
+        .from(TABLE)
+        .select('id, tier, win_rate_30d, roi_30d, units_profit_30d, total_picks, current_streak, monthly_price_cents, profiles!user_id(username, display_name, avatar_url)')
+        .eq('is_suspended', false)
+        .gte('total_picks', 1)
+        .order('units_profit_30d', { ascending: false })
+    ) as Row[] | null ?? [];
+
+    return rows.map(r => ({
+      capper_id:            r.id,
+      username:             r.profiles?.username ?? 'unknown',
+      display_name:         r.profiles?.display_name ?? null,
+      avatar_url:           r.profiles?.avatar_url ?? null,
+      tier:                 r.tier,
+      win_rate_30d:         r.win_rate_30d,
+      roi_30d:              r.roi_30d,
+      units_profit_30d:     r.units_profit_30d,
+      total_picks:          r.total_picks,
+      current_streak:       r.current_streak,
+      monthly_price_cents:  r.monthly_price_cents,
+    }));
   },
 
   async delete(id: string): Promise<void> {
