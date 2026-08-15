@@ -57,15 +57,31 @@ export const createPickBody = z.object({
     .transform(s => new Date(s)),
 }).strict();
 
+// Fields that describe the wager itself. Once the game is under way these are
+// frozen — see LOCKED_AFTER_START in routes/pickRoutes.ts — so a capper can't
+// rewrite a losing bet mid-game. `is_vip_only` is deliberately not in this set:
+// paywalling (or un-paywalling) a pick after tip-off changes nothing about the
+// wager's record.
+export const PICK_WAGER_FIELDS = [
+  'sport', 'league', 'game_id', 'bet_type',
+  'pick_details', 'odds', 'units', 'game_start_at',
+] as const;
+
 export const updatePickBody = z
   .object({
-    sport:        z.string().min(1).max(20).optional(),
-    league:       z.string().max(20).nullable().optional(),
-    bet_type:     betTypeEnum.optional(),
-    pick_details: z.record(z.unknown()).optional(),
-    odds:         z.number().int().min(-10_000).max(10_000).optional(),
-    units:        z.number().min(0.5).max(100).optional(),
-    is_vip_only:  z.boolean().optional(),
+    sport:         z.string().min(1).max(20).optional(),
+    league:        z.string().max(20).nullable().optional(),
+    game_id:       z.string().min(1).max(60).optional(),
+    bet_type:      betTypeEnum.optional(),
+    pick_details:  z.record(z.unknown()).optional(),
+    odds:          z.number().int().min(-10_000).max(10_000).optional(),
+    units:         z.number().min(0.5).max(100).optional(),
+    is_vip_only:   z.boolean().optional(),
+    game_start_at: z
+      .string()
+      .datetime({ message: 'Must be a valid ISO 8601 datetime string' })
+      .transform(s => new Date(s))
+      .optional(),
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {

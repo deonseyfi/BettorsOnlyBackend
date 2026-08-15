@@ -6,6 +6,7 @@ import { validateBody, validateQuery, validateParams } from '../middleware/valid
 import {
   idParam, pickQueryFilters,
   createPickBody, updatePickBody, gradePickBody,
+  PICK_WAGER_FIELDS,
 } from '../validation';
 import {
   pickDao, capperProfileDao, subscriptionDao,
@@ -87,6 +88,18 @@ router.post(
 );
 
 // PATCH /api/v1/picks/:id
+//
+// Edit rules (the record has to mean something, so edits are deliberately narrow):
+//   • Only the pick's own capper may edit it — never another user's pick.
+//   • A settled pick is immutable — regrading goes through POST /:id/grade.
+//     Enforced twice: once here for a clean error message, and again as a
+//     predicate on the UPDATE itself, since the auto-grader can settle the pick
+//     in between (see pickDao.updateIfPending).
+//   • Once the game has started, the wager itself is frozen; only `is_vip_only`
+//     can still change. This is the API-side enforcement of the "no backdated
+//     picks" rule the Submit form advertises.
+//   • A new game_start_at must still be in the future — you can correct a typo'd
+//     start time, not retroactively make a live game look un-started.
 router.patch(
   '/:id',
   authenticate,
@@ -97,11 +110,46 @@ router.patch(
     try {
       const capper = await capperProfileDao.findByUserId(req.user!.id);
       const pick   = await pickDao.findById(req.params.id as string);
-      if (!pick)                       { res.status(404).json({ error: 'Pick not found' });          return; }
-      if (pick.capper_id !== capper!.id) { res.status(403).json({ error: 'Forbidden' });             return; }
-      if (pick.result    !== 'pending') { res.status(400).json({ error: 'Cannot edit a graded pick' }); return; }
+      if (!pick)   { res.status(404).json({ error: 'Pick not found' }); return; }
 
-      res.json(await pickDao.update(pick.id, req.body as z.infer<typeof updatePickBody>));
+      // Ownership: the editor must be the capper who submitted this pick.
+      if (!capper || pick.capper_id !== capper.id) {
+        res.status(403).json({ error: 'You can only edit your own picks' });
+        return;
+      }
+
+      // Settled: a pick with a result, or a grading timestamp, is final.
+      if (pick.result !== 'pending' || pick.graded_at != null) {
+        res.status(400).json({ error: 'Cannot edit a settled pick' });
+        return;
+      }
+
+      const body = req.body as z.infer<typeof updatePickBody>;
+
+      const hasStarted = new Date(pick.game_start_at).getTime() <= Date.now();
+      if (hasStarted) {
+        const locked = PICK_WAGER_FIELDS.filter(f => f in body);
+        if (locked.length > 0) {
+          res.status(400).json({
+            error:  'The game has already started — only VIP visibility can be changed now',
+            fields: locked,
+          });
+          return;
+        }
+      }
+
+      if (body.game_start_at && body.game_start_at.getTime() <= Date.now()) {
+        res.status(400).json({ error: 'Game start time must be in the future' });
+        return;
+      }
+
+      // Conditional write — null means the pick was settled underneath us.
+      const updated = await pickDao.updateIfPending(pick.id, body);
+      if (!updated) {
+        res.status(409).json({ error: 'This pick was settled while you were editing it' });
+        return;
+      }
+      res.json(updated);
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Internal server error" });
@@ -120,12 +168,25 @@ router.post(
     try {
       const capper = await capperProfileDao.findByUserId(req.user!.id);
       const pick   = await pickDao.findById(req.params.id as string);
-      if (!pick)                        { res.status(404).json({ error: 'Pick not found' });  return; }
-      if (pick.capper_id !== capper!.id)  { res.status(403).json({ error: 'Forbidden' });      return; }
-      if (pick.result    !== 'pending') { res.status(400).json({ error: 'Pick already graded' }); return; }
+      if (!pick)   { res.status(404).json({ error: 'Pick not found' }); return; }
+      if (!capper || pick.capper_id !== capper.id) {
+        res.status(403).json({ error: 'You can only grade your own picks' });
+        return;
+      }
+      if (pick.result !== 'pending' || pick.graded_at != null) {
+        res.status(400).json({ error: 'Pick already graded' });
+        return;
+      }
 
+      // Same conditional write as the edit path: without the predicate, a grade
+      // racing the auto-grader would settle the pick twice and double-fire the
+      // stats refresh below.
       const { result, units_result } = req.body as z.infer<typeof gradePickBody>;
-      const updated = await pickDao.update(pick.id, { result, units_result: units_result ?? null, graded_at: new Date() });
+      const updated = await pickDao.updateIfPending(pick.id, { result, units_result: units_result ?? null, graded_at: new Date() });
+      if (!updated) {
+        res.status(409).json({ error: 'This pick was already graded' });
+        return;
+      }
 
       // Refresh stats + tier evaluation — non-blocking
       refreshCapperStats(capper!.id)

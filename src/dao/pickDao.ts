@@ -17,11 +17,13 @@ export interface CreatePickData {
 export interface UpdatePickData {
   sport?: string;
   league?: string | null;
+  game_id?: string;
   bet_type?: BetType;
   pick_details?: Record<string, unknown>;
   odds?: number;
   units?: number;
   is_vip_only?: boolean;
+  game_start_at?: Date;
   result?: PickResult;
   units_result?: number | null;
   graded_at?: Date | null;
@@ -102,11 +104,40 @@ export const pickDao = {
   },
 
   async update(id: string, data: UpdatePickData): Promise<BetPick | null> {
-    const patch: Record<string, unknown> = { ...data };
-    if (data.graded_at instanceof Date) patch.graded_at = data.graded_at.toISOString();
     const row = unwrap(
-      await supabase.from(TABLE).update(patch).eq('id', id).select('*').maybeSingle()
+      await supabase.from(TABLE).update(toPatch(data)).eq('id', id).select('*').maybeSingle()
+    );
+    return (row as BetPick | null) ?? null;
+  },
+
+  /**
+   * Update a pick only while it is still unsettled.
+   *
+   * The `result = 'pending'` predicate rides along in the UPDATE itself rather
+   * than being checked beforehand by the caller, because the auto-grader writes
+   * these same rows on an hourly sweep: a pick can settle in the window between
+   * a route reading it and writing it back, and a read-then-write would happily
+   * rewrite the odds on an already-graded bet. Returns null when the row was
+   * settled (or vanished) first — the caller should treat that as a conflict.
+   */
+  async updateIfPending(id: string, data: UpdatePickData): Promise<BetPick | null> {
+    const row = unwrap(
+      await supabase
+        .from(TABLE)
+        .update(toPatch(data))
+        .eq('id', id)
+        .eq('result', 'pending')
+        .is('graded_at', null)
+        .select('*')
+        .maybeSingle()
     );
     return (row as BetPick | null) ?? null;
   },
 };
+
+function toPatch(data: UpdatePickData): Record<string, unknown> {
+  const patch: Record<string, unknown> = { ...data };
+  if (data.graded_at instanceof Date) patch.graded_at = data.graded_at.toISOString();
+  if (data.game_start_at instanceof Date) patch.game_start_at = data.game_start_at.toISOString();
+  return patch;
+}
