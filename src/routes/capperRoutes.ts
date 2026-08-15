@@ -156,7 +156,10 @@ router.get(
   }
 );
 
-// GET /api/v1/cappers/:id/picks  — public (non-VIP) picks only
+// GET /api/v1/cappers/:id/picks
+// Public view of a capper's record: never-VIP picks, plus VIP picks that have
+// already settled. Live VIP picks stay hidden — those are the ones still worth
+// paying for. See pickDao.isRevealed.
 router.get(
   '/:id/picks',
   validateParams(idParam),
@@ -167,7 +170,7 @@ router.get(
       res.json(
         await pickDao.findByCapperId(req.params.id as string, {
           sport, result: result as PickResult | undefined,
-          is_vip_only: false, limit, offset,
+          visibility: 'public', limit, offset,
         })
       );
     } catch (e) {

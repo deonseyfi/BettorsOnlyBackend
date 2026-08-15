@@ -1,7 +1,7 @@
 export { profileDao } from './profileDao';
 export { capperProfileDao } from './capperProfileDao';
 export { capperTierHistoryDao } from './capperTierHistoryDao';
-export { pickDao } from './pickDao';
+export { pickDao, isRevealed } from './pickDao';
 export { pickAccessLogDao } from './pickAccessLogDao';
 export { subscriptionDao } from './subscriptionDao';
 export { singlePickPurchaseDao } from './singlePickPurchaseDao';

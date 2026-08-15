@@ -35,9 +35,32 @@ export interface PickFilters {
   is_vip_only?: boolean;
   limit?: number;
   offset?: number;
+  /**
+   * 'public' — what a visitor who hasn't paid is allowed to see: picks that were
+   * never VIP, plus VIP picks that have already settled. Takes precedence over
+   * `is_vip_only`. See isRevealed() for why settled VIP picks stop being paid.
+   */
+  visibility?: 'public';
 }
 
 const TABLE = 'picks';
+
+/**
+ * A VIP pick stops being paid content once it settles.
+ *
+ * The thing a buyer pays for is a bet they can still place; a graded pick is a
+ * historical record, and a track record nobody can inspect isn't worth much as
+ * a sales pitch. So settled picks are readable by anyone.
+ *
+ * PUBLIC_VISIBILITY_FILTER is the PostgREST spelling of the same rule — the two
+ * are kept adjacent because they must agree: the filter decides which picks get
+ * listed, and isRevealed() decides whether a direct fetch of one is allowed.
+ */
+export function isRevealed(pick: Pick<BetPick, 'is_vip_only' | 'result'>): boolean {
+  return !pick.is_vip_only || pick.result !== 'pending';
+}
+
+const PUBLIC_VISIBILITY_FILTER = 'is_vip_only.eq.false,result.neq.pending';
 
 export const pickDao = {
   async findById(id: string): Promise<BetPick | null> {
@@ -51,7 +74,11 @@ export const pickDao = {
     let q = supabase.from(TABLE).select('*').eq('capper_id', capperId);
     if (filters.sport !== undefined) q = q.eq('sport', filters.sport);
     if (filters.result !== undefined) q = q.eq('result', filters.result);
-    if (filters.is_vip_only !== undefined) q = q.eq('is_vip_only', filters.is_vip_only);
+    if (filters.visibility === 'public') {
+      q = q.or(PUBLIC_VISIBILITY_FILTER);
+    } else if (filters.is_vip_only !== undefined) {
+      q = q.eq('is_vip_only', filters.is_vip_only);
+    }
     const data = unwrap(
       await q.order('created_at', { ascending: false }).range(offset, offset + limit - 1)
     );

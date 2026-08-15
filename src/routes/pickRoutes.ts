@@ -9,7 +9,7 @@ import {
   PICK_WAGER_FIELDS,
 } from '../validation';
 import {
-  pickDao, capperProfileDao, subscriptionDao,
+  pickDao, isRevealed, capperProfileDao, subscriptionDao,
   singlePickPurchaseDao, pickAccessLogDao,
 } from '../dao';
 import { refreshCapperStats } from '../services/capperStatsService';
@@ -44,7 +44,10 @@ router.get('/:id', validateParams(idParam), async (req: Request, res: Response) 
     const pick = await pickDao.findById(req.params.id as string);
     if (!pick) { res.status(404).json({ error: 'Pick not found' }); return; }
 
-    if (pick.is_vip_only) {
+    // A settled VIP pick is free to read — the bet it describes can no longer be
+    // placed, so paywalling it only hides the capper's record. Anonymous readers
+    // included: requiring a login to check a track record defeats the point.
+    if (!isRevealed(pick)) {
       const authHeader = req.headers.authorization;
       if (!authHeader?.startsWith('Bearer ')) {
         res.status(401).json({ error: 'Authentication required for VIP picks' }); return;
