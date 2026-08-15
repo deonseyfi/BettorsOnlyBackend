@@ -122,35 +122,6 @@ ssh -i ~/.ssh/your-key.pem ubuntu@bettorsonly.com \
   "sudo /home/bettors/repo/deploy/scripts/deploy.sh"
 ```
 
-## Private beta gate (HTTP Basic Auth)
-
-`bettorsonly.com` sits behind a single shared HTTP Basic credential so the public
-and search crawlers can't reach the beta. `api.bettorsonly.com` is deliberately
-**not** gated — basic auth there would break the SPA's cross-origin fetches, CORS
-preflights, the Stripe webhook, and the deploy script's health check.
-
-The password file is not in the repo. Create it on the server, which prompts for
-the password interactively so it never lands in shell history:
-
-```bash
-sudo htpasswd -c /etc/nginx/.htpasswd-bettorsonly beta
-```
-
-Add further testers with the same command **without** `-c` (that flag truncates
-the file and would remove existing users):
-
-```bash
-sudo htpasswd /etc/nginx/.htpasswd-bettorsonly another-tester
-```
-
-> **Order matters.** `bettorsonly.conf` references the password file, so create it
-> *before* copying the config in. Otherwise `nginx -t` fails and the reload is
-> refused. (Nginx keeps serving the previous config, so the site stays up — but
-> the gate won't apply, and the next unrelated reload will also fail.)
-
-To lift the gate at launch: comment out the two `auth_basic` lines in the
-`bettorsonly.com` server block, then `sudo nginx -t && sudo systemctl reload nginx`.
-
 ## Common maintenance
 
 | Task | Command |
