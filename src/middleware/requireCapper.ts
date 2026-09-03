@@ -27,7 +27,9 @@ export async function requireCapper(req: Request, res: Response, next: NextFunct
       );
 
       // 2. Create the capper_profiles row with sensible zero defaults.
-      capper = await capperProfileDao.create({
+      //    Idempotent — a concurrent request from the same page load may have
+      //    already inserted it between our findByUserId and here.
+      capper = await capperProfileDao.ensure({
         user_id: req.user.id,
         bio: null,
         monthly_price_cents: 0,

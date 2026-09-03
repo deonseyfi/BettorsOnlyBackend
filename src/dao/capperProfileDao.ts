@@ -46,6 +46,29 @@ export const capperProfileDao = {
     return (data as CapperProfile | null) ?? null;
   },
 
+  // Idempotent provisioning. Two capper-gated requests from the same page load
+  // race here (the Profile page fires GET /cappers/me and GET /cappers/me/picks
+  // in parallel), so both can see no row and both try to insert. `ON CONFLICT DO
+  // NOTHING` lets the loser fall through to the winner's row instead of blowing
+  // up with 23505 on capper_profiles_user_id_key.
+  async ensure(data: CreateCapperProfileData): Promise<CapperProfile> {
+    unwrap(
+      await supabase.from(TABLE).upsert(
+        {
+          user_id: data.user_id,
+          bio: data.bio ?? null,
+          monthly_price_cents: data.monthly_price_cents ?? 0,
+          single_pick_price_cents: data.single_pick_price_cents ?? 0,
+        },
+        { onConflict: 'user_id', ignoreDuplicates: true }
+      )
+    );
+    // `ignoreDuplicates` returns no rows, so read the row back either way.
+    const row = await this.findByUserId(data.user_id);
+    if (!row) throw new Error(`capper profile missing for user ${data.user_id} immediately after upsert`);
+    return row;
+  },
+
   async create(data: CreateCapperProfileData): Promise<CapperProfile> {
     const row = unwrap(
       await supabase
